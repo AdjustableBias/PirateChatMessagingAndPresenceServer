@@ -65,6 +65,19 @@ io.configure(function () {
 // TODO: break this up into activeUsers and userSubscribers so you don't have to distinguish between a user
 // who isn't connected but is subscribed to by a connected user and one that is fully connected by weird socket checks
 var users = {};
+
+var sendToUser = function server$sendToUser(message, user) {
+    var sockets = user.sockets;
+
+    if (sockets) {
+        for (var socketId in sockets) {
+            if (sockets.hasOwnProperty(socketId) && sockets[socketId]) {
+                sockets[socketId].send(message);
+            }
+        }
+    }
+}
+
 var addSocketToUser = function server$addSocketToUser (socketToAdd, user) {
     var id = user.nextSocketId;
     user.nextSocketId++;
@@ -97,15 +110,16 @@ var statusChange = function server$statusChange (newStatus, user) {
         // Notify any subscribers
         for (var subscriberName in user.subscribers) {
             if (user.subscribers.hasOwnProperty(subscriberName)) {
-                var sockets = user.subscribers[subscriberName].sockets;
-
-                if (sockets) {
-                    for (var socketId in sockets) {
-                        if (sockets.hasOwnProperty(socketId) && sockets[socketId]) {
-                            sockets[socketId].send(JSON.stringify({ messageId: "StatusChange", user: user.name, status: newStatus }));
-                        }
-                    }
-                }
+                sendToUser(JSON.stringify({ messageId: "StatusChange", user: user.name, status: newStatus }), user.subscribers[subscriberName]);
+                //var sockets = user.subscribers[subscriberName].sockets;
+                //
+                //if (sockets) {
+                //    for (var socketId in sockets) {
+                //        if (sockets.hasOwnProperty(socketId) && sockets[socketId]) {
+                //            sockets[socketId].send(JSON.stringify({ messageId: "StatusChange", user: user.name, status: newStatus }));
+                //        }
+                //    }
+                //}
             }
         }
     }
@@ -158,17 +172,19 @@ var removeSocket = function server$removeSocket (user, socketId) {
     }
 }
 
-var sendMessageToUser = function server$sendMessageToUser (toUser, fromUser, messageText) {
-    if (toUser.sockets) {
-        for (var socketId in toUser.sockets) {
-            if (toUser.sockets.hasOwnProperty(socketId) && toUser.sockets[socketId]) {
-                var messageObj = { messageId: "ChatMessage", fromUser: fromUser.name, messageText: messageText };
-                console.log("sending message: ");
-                console.dir(messageObj);
-                toUser.sockets[socketId].send(JSON.stringify(messageObj));
-            }
-        }
-    }
+var sendChatMessageToUser = function server$sendMessageToUser(toUser, fromUser, messageText) {
+    var messageObj = { messageId: "ChatMessage", fromUser: fromUser.name, messageText: messageText };
+    sendToUser(JSON.stringify(messageObj), toUser);
+    //if (toUser.sockets) {
+    //    for (var socketId in toUser.sockets) {
+    //        if (toUser.sockets.hasOwnProperty(socketId) && toUser.sockets[socketId]) {
+    //            var messageObj = { messageId: "ChatMessage", fromUser: fromUser.name, messageText: messageText };
+    //            console.log("sending message: ");
+    //            console.dir(messageObj);
+    //            toUser.sockets[socketId].send(JSON.stringify(messageObj));
+    //        }
+    //    }
+    //}
 }
 
 io.sockets.on('connection', function server$io$on$connection (socket) {
@@ -206,12 +222,9 @@ io.sockets.on('connection', function server$io$on$connection (socket) {
                         socketId = addSocketToUser(socket, user);
                         statusChange("online", user);
 
-                        // Only using subscription info from the first person to connect
-                        // TODO: if the same person connects more than once, synchronize contacts
-                        if (!user.subscribedToNames) {
-                            console.log("Adding subscribedToNames");
-                            addSubscribedToNames(messageObj.user.subscribedToNames, user, socket);
-                        }
+                        
+                        console.log("Adding subscribedToNames");
+                        addSubscribedToNames(messageObj.user.subscribedToNames, user, socket);
 
                         user = users[messageObj.user.name];
                     }
@@ -219,7 +232,7 @@ io.sockets.on('connection', function server$io$on$connection (socket) {
                 case "ChatMessage":
                     if (messageObj.targetName && users[messageObj.targetName]) {
                         var targetUser = users[messageObj.targetName];
-                        sendMessageToUser(targetUser, user, messageObj.messageText);
+                        sendChatMessageToUser(targetUser, user, messageObj.messageText);
                     }
                     else {
                         console.error("Invalid username: '" + message.targetName +  "' target for a message.");
